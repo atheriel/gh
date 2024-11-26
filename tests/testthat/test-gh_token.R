@@ -163,3 +163,23 @@ test_that("get_apiurl() works", {
   expect_equal(get_apiurl("https://github.acme.com/OWNER/REPO"), x)
   expect_equal(get_apiurl("https://github.acme.com/api/v3"), x)
 })
+
+test_that("missing viewer credentials can be debugged", {
+  # Mock a Connect environment that *does not* support viewer-based credentials.
+  withr::local_envvar(RSTUDIO_PRODUCT = "CONNECT")
+  local_mocked_bindings(get_connect_session = function() {
+    structure(list(request = list()), class = "ShinySession")
+  })
+  local_options(connectcreds_debug = TRUE)
+  expect_snapshot(. <- gh_token())
+})
+
+test_that("tokens can be requested from a Connect server", {
+  skip_if_not_installed("connectcreds")
+  local_mocked_bindings(
+    get_connect_session = connectcreds::example_connect_session
+  )
+  token <- strrep("a", 40)
+  connectcreds::local_mocked_connect_responses(token = token)
+  expect_equal(gh_token(), gh_pat(token))
+})

@@ -46,8 +46,17 @@
 gh_token <- function(api_url = NULL) {
   api_url <- api_url %||% default_api_url()
   stopifnot(is.character(api_url), length(api_url) == 1)
+  host_url <- get_hosturl(api_url)
+  # Session credentials take precedence over static credentials.
+  session <- get_connect_session()
+  if (!is.null(session)) {
+    if (connectcreds::has_viewer_token(session, host_url)) {
+      token <- connectcreds::connect_viewer_token(session, host_url)
+      return(gh_pat(token$access_token))
+    }
+  }
   token <- tryCatch(
-    gitcreds::gitcreds_get(get_hosturl(api_url)),
+    gitcreds::gitcreds_get(host_url),
     error = function(e) NULL
   )
   gh_pat(token$password %||% "")
@@ -56,15 +65,7 @@ gh_token <- function(api_url = NULL) {
 #' @export
 #' @rdname gh_token
 gh_token_exists <- function(api_url = NULL) {
-  api_url <- api_url %||% default_api_url()
-  tryCatch(
-    {
-      token <- gitcreds::gitcreds_get(get_hosturl(api_url))
-      gh_pat(token$password)
-      TRUE
-    } ,
-    error = function(e) FALSE
-  )
+  tryCatch(nzchar(gh_token(api_url)), error = function(e) FALSE)
 }
 
 gh_auth <- function(token) {
@@ -141,4 +142,31 @@ obfuscate <- function(x, first = 4, last = 4) {
     "...",
     substr(x, start = nchar(x) - last + 1, stop = nchar(x))
   )
+}
+
+get_connect_session <- function() {
+  if (!identical(Sys.getenv("RSTUDIO_PRODUCT"), "CONNECT")) {
+    return(NULL)
+  }
+  if (!isNamespaceLoaded("shiny")) {
+    return(NULL)
+  }
+  if (is_installed("connectcreds")) {
+    # Avoid taking a Suggests dependency on Shiny, which is otherwise
+    # irrelevant to gh.
+    f <- get("getDefaultReactiveDomain", envir = asNamespace("shiny"))
+    return(f())
+  }
+  cli::cli_inform(
+    c(
+      "Viewer-based credentials for GitHub require the {.pkg connectcreds} \
+       package, but it is not installed.",
+      "i" = "Redeploy with {.pkg connectcreds} as a dependency if you wish to \
+             use viewer-based credentials. The most common way to do this is \
+             to add {.code library(connectcreds)} to your {.file app.R} file."
+    ),
+    .frequency = "once",
+    .frequency_id = "connectcreds_missing"
+  )
+  NULL
 }
